@@ -60,7 +60,7 @@ impl Editor {
         for r in 0..height {
             Terminal::clear_line()?;
             Self::draw_empty_row()?;
-            if r + 1 < height {
+            if r.saturating_add(1) < height {
                 Terminal::print("\r\n".to_string())?;
             }
         }
