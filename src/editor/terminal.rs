@@ -9,6 +9,7 @@ use crossterm::{
 #[derive(Default)]
 pub struct Terminal {}
 
+#[derive(Default)]
 pub struct Position {
     pub col: u16,
     pub row: u16,
@@ -24,19 +25,16 @@ impl Terminal {
         enable_raw_mode()?;
         Self::clear_screen()?;
         Self::move_cursor(&Position { col: 0, row: 0 })?;
-        Self::execute()?;
-        Ok(())
+        Self::execute()
     }
 
     pub fn terminate() -> Result<(), Error> {
         Self::execute()?;
-        disable_raw_mode()?;
-        Ok(())
+        disable_raw_mode()
     }
 
     pub fn move_cursor(pos: &Position) -> Result<(), std::io::Error> {
-        Self::queue_command(cursor::MoveTo(pos.col, pos.row))?;
-        Ok(())
+        Self::queue_command(cursor::MoveTo(pos.col, pos.row))
     }
 
     pub fn size() -> Result<Size, Error> {
@@ -57,13 +55,11 @@ impl Terminal {
     }
 
     pub fn show_cursor() -> Result<(), std::io::Error> {
-        execute!(stdout(), cursor::Show)?;
-        Ok(())
+        execute!(stdout(), cursor::Show)
     }
 
     pub fn print(s: String) -> Result<(), std::io::Error> {
-        Self::queue_command(Print(s))?;
-        Ok(())
+        Self::queue_command(Print(s))
     }
 
     pub fn execute() -> Result<(), Error> {
