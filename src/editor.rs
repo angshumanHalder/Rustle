@@ -4,7 +4,7 @@ use std::io::Error;
 use crossterm::event::{
     Event::{self, Key},
     KeyCode::{self},
-    KeyEvent, KeyModifiers, read,
+    KeyEvent, KeyEventKind, KeyModifiers, read,
 };
 
 mod terminal;
@@ -52,7 +52,10 @@ impl Editor {
 
     fn evaluate_event(&mut self, event: &Event) -> Result<(), Error> {
         if let Key(KeyEvent {
-            code, modifiers, ..
+            code,
+            modifiers,
+            kind: KeyEventKind::Press,
+            ..
         }) = event
         {
             match code {
