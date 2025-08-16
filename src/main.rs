@@ -1,8 +1,10 @@
 #![warn(clippy::all, clippy::pedantic)]
+
 mod editor;
 
 use editor::Editor;
 
 fn main() {
-    Editor::default().run();
+    let args: Vec<String> = std::env::args().collect();
+    Editor::new(args.get(1)).run();
 }

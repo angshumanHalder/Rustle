@@ -1,5 +1,5 @@
-use std::cmp::min;
 use std::io::Error;
+use std::{cmp::min, fs::File};
 
 use crossterm::event::{
     Event::{self, Key},
@@ -7,15 +7,17 @@ use crossterm::event::{
     KeyEvent, KeyEventKind, KeyModifiers, read,
 };
 
+mod buffer;
 mod terminal;
-use terminal::{Position, Size, Terminal};
+mod view;
 
-const NAME: &str = env!("CARGO_PKG_NAME");
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+use terminal::{Position, Size, Terminal};
+use view::View;
 
 pub struct Editor {
     should_quit: bool,
     location: Location,
+    view: View,
 }
 
 struct Location {
@@ -24,10 +26,15 @@ struct Location {
 }
 
 impl Editor {
-    pub const fn default() -> Self {
+    pub fn new(path: Option<&String>) -> Self {
+        let mut file: Option<File> = None;
+        if let Some(p) = path {
+            file = (File::open(p)).ok();
+        }
         Self {
             should_quit: false,
             location: Location { col: 0, row: 0 },
+            view: View::new(file),
         }
     }
 
@@ -112,29 +119,14 @@ impl Editor {
         Ok(())
     }
 
-    fn draw_rows() -> Result<(), Error> {
-        let Size { height, .. } = Terminal::size()?;
-        for r in 0..height {
-            Terminal::clear_line()?;
-            Self::draw_empty_row()?;
-            if r.saturating_add(1) < height {
-                Terminal::print("\r\n".to_string())?;
-            }
-        }
-        Self::draw_welcome_message()?;
-        Terminal::move_cursor(&Position { col: 0, row: 0 })?;
-        Terminal::execute()?;
-        Ok(())
-    }
-
     fn refresh_screen(&mut self) -> Result<(), Error> {
         Terminal::hide_cursor()?;
         Terminal::move_cursor(&Position::default())?;
         if self.should_quit {
             Terminal::clear_screen()?;
-            Terminal::print("Goodbye.\r\n".to_string())?;
+            Terminal::print("Goodbye.\r\n")?;
         } else {
-            Self::draw_rows()?;
+            self.view.render()?;
             Terminal::move_cursor(&Position {
                 col: self.location.col,
                 row: self.location.row,
@@ -143,27 +135,5 @@ impl Editor {
         Terminal::show_cursor()?;
         Terminal::execute()?;
         Ok(())
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    fn draw_welcome_message() -> Result<(), Error> {
-        let Size { width, height } = Terminal::size()?;
-        let message = format!("{NAME} editor - version {VERSION}");
-        let offset_height_pos = height / 3;
-        let offset_width_pos = (width / 2).saturating_sub((message.len() / 2) as u16);
-
-        Terminal::move_cursor(&Position {
-            col: offset_width_pos,
-            row: offset_height_pos,
-        })?;
-        Terminal::print(message)?;
-        Terminal::move_cursor(&Position { col: 0, row: 0 })?;
-        Terminal::execute()?;
-
-        Ok(())
-    }
-
-    fn draw_empty_row() -> Result<(), Error> {
-        Terminal::print("~".to_string())
     }
 }

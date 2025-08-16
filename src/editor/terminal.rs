@@ -58,7 +58,7 @@ impl Terminal {
         execute!(stdout(), cursor::Show)
     }
 
-    pub fn print(s: String) -> Result<(), std::io::Error> {
+    pub fn print(s: &str) -> Result<(), std::io::Error> {
         Self::queue_command(Print(s))
     }
 
