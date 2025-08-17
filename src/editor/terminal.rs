@@ -3,7 +3,9 @@ use std::io::{Error, Write, stdout};
 use crossterm::{
     Command, cursor, execute, queue,
     style::Print,
-    terminal::{self, Clear, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        self, Clear, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    },
 };
 
 #[derive(Default)]
@@ -15,6 +17,7 @@ pub struct Position {
     pub row: u16,
 }
 
+#[derive(Default)]
 pub struct Size {
     pub width: u16,
     pub height: u16,
@@ -23,12 +26,15 @@ pub struct Size {
 impl Terminal {
     pub fn initialize() -> Result<(), Error> {
         enable_raw_mode()?;
+        Self::enter_alternate_screen()?;
         Self::clear_screen()?;
         Self::move_cursor(&Position { col: 0, row: 0 })?;
         Self::execute()
     }
 
     pub fn terminate() -> Result<(), Error> {
+        Self::leave_alternate_screen()?;
+        Self::show_cursor()?;
         Self::execute()?;
         disable_raw_mode()
     }
@@ -60,6 +66,14 @@ impl Terminal {
 
     pub fn print(s: &str) -> Result<(), std::io::Error> {
         Self::queue_command(Print(s))
+    }
+
+    pub fn enter_alternate_screen() -> Result<(), std::io::Error> {
+        Self::queue_command(EnterAlternateScreen)
+    }
+
+    fn leave_alternate_screen() -> Result<(), std::io::Error> {
+        Self::queue_command(LeaveAlternateScreen)
     }
 
     pub fn execute() -> Result<(), Error> {

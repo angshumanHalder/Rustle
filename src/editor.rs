@@ -1,4 +1,5 @@
 use std::io::Error;
+use std::panic::{set_hook, take_hook};
 use std::{cmp::min, fs::File};
 
 use crossterm::event::{
@@ -26,68 +27,80 @@ struct Location {
 }
 
 impl Editor {
-    pub fn new(path: Option<&String>) -> Self {
+    pub fn new(path: Option<&String>) -> Result<Self, Error> {
+        let current_hook = take_hook();
+        set_hook(Box::new(move |panic_info| {
+            let _ = Terminal::terminate();
+            current_hook(panic_info);
+        }));
+
+        Terminal::initialize()?;
         let mut file: Option<File> = None;
         if let Some(p) = path {
             file = (File::open(p)).ok();
         }
-        Self {
+        Ok(Self {
             should_quit: false,
             location: Location { col: 0, row: 0 },
             view: View::new(file),
-        }
+        })
     }
 
     pub fn run(&mut self) {
-        Terminal::initialize().unwrap();
-        let result = self.repl();
-        Terminal::terminate().unwrap();
-        result.unwrap();
-    }
-
-    pub fn repl(&mut self) -> Result<(), Error> {
         loop {
-            self.refresh_screen()?;
+            self.refresh_screen().unwrap();
             if self.should_quit {
                 break;
             }
-            let event = read()?;
-            self.evaluate_event(&event)?;
-        }
-        Ok(())
-    }
-
-    fn evaluate_event(&mut self, event: &Event) -> Result<(), Error> {
-        if let Key(KeyEvent {
-            code,
-            modifiers,
-            kind: KeyEventKind::Press,
-            ..
-        }) = event
-        {
-            match code {
-                KeyCode::Char('q') if *modifiers == KeyModifiers::CONTROL => {
-                    self.should_quit = true;
+            match read() {
+                Ok(event) => self.evaluate_event(&event),
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        panic!("Could not read event: {err:?}")
+                    }
                 }
-                KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::PageUp
-                | KeyCode::PageDown
-                | KeyCode::Home
-                | KeyCode::End => {
-                    self.move_point(*code)?;
-                }
-                _ => (),
             }
         }
-        Ok(())
     }
 
-    fn move_point(&mut self, key_code: KeyCode) -> Result<(), Error> {
+    fn evaluate_event(&mut self, event: &Event) {
+        match event {
+            Key(KeyEvent {
+                code,
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
+            }) => match (code, *modifiers) {
+                (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
+                    self.should_quit = true;
+                }
+                (
+                    KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Home
+                    | KeyCode::End,
+                    _,
+                ) => {
+                    self.move_point(*code);
+                }
+                _ => (),
+            },
+            Event::Resize(width, height) => self.view.resize(Size {
+                width: *width,
+                height: *height,
+            }),
+            _ => {}
+        }
+    }
+
+    fn move_point(&mut self, key_code: KeyCode) {
         let Location { mut col, mut row } = self.location;
-        let Size { width, height } = Terminal::size()?;
+        let Size { width, height } = Terminal::size().unwrap();
         match key_code {
             KeyCode::Up => {
                 row = row.saturating_sub(1);
@@ -116,7 +129,6 @@ impl Editor {
             _ => (),
         }
         self.location = Location { col, row };
-        Ok(())
     }
 
     fn refresh_screen(&mut self) -> Result<(), Error> {
@@ -126,14 +138,23 @@ impl Editor {
             Terminal::clear_screen()?;
             Terminal::print("Goodbye.\r\n")?;
         } else {
-            self.view.render()?;
+            self.view.render();
             Terminal::move_cursor(&Position {
                 col: self.location.col,
                 row: self.location.row,
             })?;
         }
-        Terminal::show_cursor()?;
-        Terminal::execute()?;
+        Terminal::show_cursor().unwrap();
+        Terminal::execute().unwrap();
         Ok(())
+    }
+}
+
+impl Drop for Editor {
+    fn drop(&mut self) {
+        let _ = Terminal::terminate();
+        if self.should_quit {
+            let _ = Terminal::print("Goodbye.\r\n");
+        }
     }
 }

@@ -18,12 +18,27 @@ impl Buffer {
         Self { document }
     }
 
-    pub fn get_line(&self, idx: usize) -> Option<String> {
+    pub fn get_line(&self, idx: usize, end: usize) -> Option<String> {
         if let Some(line) = self.document.get_line(idx) {
-            let text = line.to_string();
-            Some(text)
+            if line.len_chars() == 0 {
+                None
+            } else {
+                let bound = std::cmp::min(line.len_chars(), end);
+                let text = line.slice(0..bound).to_string();
+                Some(text)
+            }
         } else {
             None
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.document.len_chars() == 0
+    }
+}
+
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        self.document = Rope::new();
     }
 }

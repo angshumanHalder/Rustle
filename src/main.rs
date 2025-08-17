@@ -6,5 +6,5 @@ use editor::Editor;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    Editor::new(args.get(1)).run();
+    Editor::new(args.get(1)).unwrap().run();
 }
