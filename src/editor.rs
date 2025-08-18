@@ -1,29 +1,20 @@
+use std::fs::File;
 use std::io::Error;
 use std::panic::{set_hook, take_hook};
-use std::{cmp::min, fs::File};
 
-use crossterm::event::{
-    Event::{self, Key},
-    KeyCode::{self},
-    KeyEvent, KeyEventKind, KeyModifiers, read,
-};
+use commands::EditorCommand;
+use crossterm::event::{Event, KeyEvent, KeyEventKind, read};
 
-mod buffer;
+mod commands;
 mod terminal;
 mod view;
 
-use terminal::{Position, Size, Terminal};
+use terminal::Terminal;
 use view::View;
 
 pub struct Editor {
     should_quit: bool,
-    location: Location,
     view: View,
-}
-
-struct Location {
-    col: u16,
-    row: u16,
 }
 
 impl Editor {
@@ -41,7 +32,6 @@ impl Editor {
         }
         Ok(Self {
             should_quit: false,
-            location: Location { col: 0, row: 0 },
             view: View::new(file),
         })
     }
@@ -65,84 +55,44 @@ impl Editor {
     }
 
     fn evaluate_event(&mut self, event: &Event) {
-        match event {
-            Key(KeyEvent {
-                code,
-                modifiers,
-                kind: KeyEventKind::Press,
-                ..
-            }) => match (code, *modifiers) {
-                (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
-                    self.should_quit = true;
-                }
-                (
-                    KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::Left
-                    | KeyCode::Right
-                    | KeyCode::PageUp
-                    | KeyCode::PageDown
-                    | KeyCode::Home
-                    | KeyCode::End,
-                    _,
-                ) => {
-                    self.move_point(*code);
-                }
-                _ => (),
-            },
-            Event::Resize(width, height) => self.view.resize(Size {
-                width: *width,
-                height: *height,
-            }),
-            _ => {}
-        }
-    }
+        let should_process = match event {
+            Event::Key(KeyEvent { kind, .. }) => kind == &KeyEventKind::Press,
+            Event::Resize(_, _) => true,
+            _ => false,
+        };
 
-    fn move_point(&mut self, key_code: KeyCode) {
-        let Location { mut col, mut row } = self.location;
-        let Size { width, height } = Terminal::size().unwrap();
-        match key_code {
-            KeyCode::Up => {
-                row = row.saturating_sub(1);
+        if should_process {
+            match EditorCommand::try_from(event) {
+                Ok(command) => {
+                    if matches!(command, EditorCommand::Quit) {
+                        self.should_quit = true;
+                    } else {
+                        self.view.handle_command(command);
+                    }
+                }
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        panic!("Could not handle command: {err}")
+                    }
+                }
             }
-            KeyCode::Down => {
-                row = min(height.saturating_sub(1), row.saturating_add(1));
+        } else {
+            #[cfg(debug_assertions)]
+            {
+                panic!("Received and discarded unsupported or non-press event")
             }
-            KeyCode::Left => {
-                col = col.saturating_sub(1);
-            }
-            KeyCode::Right => {
-                col = min(width.saturating_sub(1), col.saturating_add(1));
-            }
-            KeyCode::PageUp => {
-                row = 0;
-            }
-            KeyCode::PageDown => {
-                row = height.saturating_sub(1);
-            }
-            KeyCode::Home => {
-                col = 0;
-            }
-            KeyCode::End => {
-                col = width.saturating_sub(1);
-            }
-            _ => (),
         }
-        self.location = Location { col, row };
     }
 
     fn refresh_screen(&mut self) -> Result<(), Error> {
         Terminal::hide_cursor()?;
-        Terminal::move_cursor(&Position::default())?;
         if self.should_quit {
             Terminal::clear_screen()?;
             Terminal::print("Goodbye.\r\n")?;
         } else {
             self.view.render();
-            Terminal::move_cursor(&Position {
-                col: self.location.col,
-                row: self.location.row,
-            })?;
+            let _ = Terminal::move_cursor(&self.view.get_position());
         }
         Terminal::show_cursor().unwrap();
         Terminal::execute().unwrap();

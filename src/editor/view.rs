@@ -1,8 +1,14 @@
 use std::fs::File;
 use std::io::Error;
 
-use super::buffer::Buffer;
+use buffer::Buffer;
+use location::Location;
+
+use super::commands::{Direction, EditorCommand};
 use super::terminal::{Position, Size, Terminal};
+
+mod buffer;
+mod location;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -11,6 +17,8 @@ pub struct View {
     buffer: Buffer,
     need_redraw: bool,
     size: Size,
+    location: Location,
+    scroll_offset: Location,
 }
 
 impl View {
@@ -19,6 +27,8 @@ impl View {
             buffer: Buffer::new(file),
             need_redraw: true,
             size: Terminal::size().unwrap_or_default(),
+            location: Location { col: 0, row: 0 },
+            scroll_offset: Location { col: 0, row: 0 },
         }
     }
 
@@ -43,14 +53,96 @@ impl View {
 
     pub fn resize(&mut self, size: Size) {
         self.size = size;
+        self.scroll_into_view();
         self.need_redraw = true;
+    }
+
+    pub fn handle_command(&mut self, command: EditorCommand) {
+        match command {
+            EditorCommand::Resize(size) => self.resize(size),
+            EditorCommand::Move(direction) => self.move_cursor(&direction),
+            EditorCommand::Quit => {}
+        }
+    }
+
+    pub fn move_cursor(&mut self, direction: &Direction) {
+        let Location { mut col, mut row } = self.location;
+        let Size { width, height } = Terminal::size().unwrap();
+        match direction {
+            Direction::Up => {
+                row = row.saturating_sub(1);
+            }
+            Direction::Down => {
+                row = row.saturating_add(1);
+            }
+            Direction::Left => {
+                col = col.saturating_sub(1);
+            }
+            Direction::Right => {
+                col = col.saturating_add(1);
+            }
+            Direction::PageUp => {
+                row = 0;
+            }
+            Direction::PageDown => {
+                row = height.saturating_sub(1);
+            }
+            Direction::Home => {
+                col = 0;
+            }
+            Direction::End => {
+                col = width.saturating_sub(1);
+            }
+        }
+        self.location = Location { col, row };
+        self.scroll_into_view();
+    }
+
+    pub fn scroll_into_view(&mut self) {
+        let Location { col, row } = self.location;
+        let Size { width, height } = self.size;
+        let mut offset_changed = false;
+
+        // vertical
+        if row < self.scroll_offset.row {
+            self.scroll_offset.row = row;
+            offset_changed = true;
+        } else if row >= self.scroll_offset.row.saturating_add(height) {
+            self.scroll_offset.row = row.saturating_sub(height).saturating_add(1);
+            offset_changed = true;
+        }
+
+        if col < self.scroll_offset.col {
+            self.scroll_offset.col = col;
+            offset_changed = true;
+        } else if col >= self.scroll_offset.col.saturating_add(width) {
+            self.scroll_offset.col = col.saturating_sub(width).saturating_add(1);
+            offset_changed = true;
+        }
+        self.need_redraw = offset_changed;
+    }
+
+    pub fn get_position(&self) -> Position {
+        self.location.subtract(self.scroll_offset).into()
     }
 
     fn render_line(&self, r: u16, width: u16) -> Result<(), Error> {
         Terminal::move_cursor(&Position { col: 0, row: r })?;
         Terminal::clear_line()?;
-        if let Some(text) = self.buffer.get_line(r as usize, width as usize) {
-            Terminal::print(&text)
+        let top = self.scroll_offset.row;
+        let left = self.scroll_offset.col as usize;
+        let line_opt = self
+            .buffer
+            .get_line(r.saturating_add(top) as usize, left + width as usize);
+
+        if let Some(line) = line_opt {
+            // Only grab the visible portion
+            let text_to_print: String = line.chars().skip(left).take(width as usize).collect();
+            if text_to_print.is_empty() {
+                Self::draw_empty_row()
+            } else {
+                Terminal::print(&text_to_print)
+            }
         } else {
             Self::draw_empty_row()
         }
