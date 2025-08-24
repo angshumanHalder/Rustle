@@ -11,10 +11,19 @@ use crossterm::{
 #[derive(Default)]
 pub struct Terminal {}
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct Position {
     pub col: u16,
     pub row: u16,
+}
+
+impl Position {
+    pub const fn saturating_sub(self, other: Position) -> Self {
+        Self {
+            col: self.col.saturating_sub(other.col),
+            row: self.row.saturating_sub(other.row),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -28,7 +37,7 @@ impl Terminal {
         enable_raw_mode()?;
         Self::enter_alternate_screen()?;
         Self::clear_screen()?;
-        Self::move_cursor(&Position { col: 0, row: 0 })?;
+        Self::move_cursor(Position { col: 0, row: 0 })?;
         Self::execute()
     }
 
@@ -39,7 +48,7 @@ impl Terminal {
         disable_raw_mode()
     }
 
-    pub fn move_cursor(pos: &Position) -> Result<(), std::io::Error> {
+    pub fn move_cursor(pos: Position) -> Result<(), std::io::Error> {
         Self::queue_command(cursor::MoveTo(pos.col, pos.row))
     }
 

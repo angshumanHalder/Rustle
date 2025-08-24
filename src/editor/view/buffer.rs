@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use ropey::Rope;
+use ropey::{Rope, RopeSlice};
 
 pub struct Buffer {
     pub document: Rope,
@@ -18,18 +18,12 @@ impl Buffer {
         Self { document }
     }
 
-    pub fn get_line(&self, idx: usize, end: usize) -> Option<String> {
-        if let Some(line) = self.document.get_line(idx) {
-            if line.len_chars() == 0 {
-                None
-            } else {
-                let bound = std::cmp::min(line.len_chars(), end);
-                let text = line.slice(0..bound).to_string();
-                Some(text)
-            }
-        } else {
-            None
-        }
+    pub fn get_line(&self, idx: usize) -> Option<RopeSlice> {
+        self.document.get_line(idx)
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.document.len_lines()
     }
 
     pub fn is_empty(&self) -> bool {

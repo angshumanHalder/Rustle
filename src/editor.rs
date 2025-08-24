@@ -92,7 +92,7 @@ impl Editor {
             Terminal::print("Goodbye.\r\n")?;
         } else {
             self.view.render();
-            let _ = Terminal::move_cursor(&self.view.get_position());
+            let _ = Terminal::move_cursor(self.view.get_position());
         }
         Terminal::show_cursor().unwrap();
         Terminal::execute().unwrap();
