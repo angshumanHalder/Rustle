@@ -93,6 +93,20 @@ impl Line {
             .sum()
     }
 
+    pub fn grapheme_to_char_idx(&self, grapheme_idx: usize) -> usize {
+        self.fragments
+            .iter()
+            .take(grapheme_idx)
+            .map(|f| f.grapheme.chars().count())
+            .sum()
+    }
+
+    pub fn grapheme_char_len(&self, grapheme_idx: usize) -> Option<usize> {
+        self.fragments
+            .get(grapheme_idx)
+            .map(|f| f.grapheme.chars().count())
+    }
+
     fn detect_width(grapheme: &str) -> GraphemeWidth {
         match grapheme.width() {
             0 => GraphemeWidth::Zero,

@@ -29,6 +29,15 @@ impl Buffer {
     pub fn is_empty(&self) -> bool {
         self.document.len_chars() == 0
     }
+
+    pub fn insert_char(&mut self, pos: usize, ch: char) {
+        self.document.insert_char(pos, ch);
+    }
+
+    pub fn delete_range_char(&mut self, pos: usize, len: usize) {
+        let end = pos.saturating_add(len);
+        self.document.remove(pos..end);
+    }
 }
 
 impl Drop for Buffer {

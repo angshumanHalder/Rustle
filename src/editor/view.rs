@@ -1,6 +1,6 @@
-use std::cmp;
 use std::fs::File;
 use std::io::Error;
+use std::{char, cmp};
 
 use buffer::Buffer;
 use grapheme::Line;
@@ -49,7 +49,10 @@ impl View {
         match command {
             EditorCommand::Resize(size) => self.resize(size),
             EditorCommand::Move(direction) => self.move_cursor(&direction),
-            EditorCommand::Quit => {}
+            EditorCommand::Insert(c) => self.add_character(c),
+            EditorCommand::Backspace => self.remove_backward(),
+            EditorCommand::Delete => self.remove_forward(),
+            EditorCommand::Quit | EditorCommand::Ignore => {}
         }
     }
 
@@ -131,6 +134,70 @@ impl View {
             .map_or(0, |line| {
                 Line::from(line).grapheme_count().saturating_sub(1)
             });
+    }
+
+    fn add_character(&mut self, ch: char) {
+        if let Some(line) = self.buffer.get_line(self.location.line_index) {
+            let char_idx_in_line =
+                Line::from(line).grapheme_to_char_idx(self.location.grapheme_index);
+            let pos =
+                self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
+            self.buffer.insert_char(pos, ch);
+            self.move_right();
+            // self.location.grapheme_index += 1;
+            self.scroll_into_view();
+            self.need_redraw = true;
+        }
+    }
+
+    fn remove_backward(&mut self) {
+        if self.location.line_index == 0 && self.location.grapheme_index == 0 {
+            return;
+        }
+
+        self.move_left();
+
+        if let Some(line) = self.buffer.get_line(self.location.line_index) {
+            let view_line = Line::from(line);
+            let char_idx_in_line = view_line.grapheme_to_char_idx(self.location.grapheme_index);
+            let grapheme_char_len = view_line
+                .grapheme_char_len(self.location.grapheme_index)
+                .unwrap_or(0);
+            let pos =
+                self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
+            self.buffer.delete_range_char(pos, grapheme_char_len);
+            self.scroll_into_view();
+            self.need_redraw = true;
+        }
+    }
+
+    fn remove_forward(&mut self) {
+        if let Some(line) = self.buffer.get_line(self.location.line_index) {
+            let view_line = Line::from(line);
+            let line_len = view_line.grapheme_count();
+            if self.location.grapheme_index >= line_len {
+                if self.location.line_index < self.buffer.line_count() - 1 {
+                    let pos = self
+                        .buffer
+                        .document
+                        .line_to_char(self.location.line_index + 1)
+                        .saturating_sub(1);
+                    self.buffer.delete_range_char(pos, 1);
+                    self.scroll_into_view();
+                    self.need_redraw = true;
+                }
+                return;
+            }
+            let char_idx_in_line = view_line.grapheme_to_char_idx(self.location.grapheme_index);
+            let grapheme_char_len = view_line
+                .grapheme_char_len(self.location.grapheme_index)
+                .unwrap_or(0);
+            let pos =
+                self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
+            self.buffer.delete_range_char(pos, grapheme_char_len);
+            self.scroll_into_view();
+            self.need_redraw = true;
+        }
     }
 
     // doesn't trigger scroll
