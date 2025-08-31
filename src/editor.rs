@@ -15,6 +15,7 @@ use view::View;
 pub struct Editor {
     should_quit: bool,
     view: View,
+    file_path: Option<String>,
 }
 
 impl Editor {
@@ -33,6 +34,7 @@ impl Editor {
         Ok(Self {
             should_quit: false,
             view: View::new(file),
+            file_path: path.cloned(),
         })
     }
 
@@ -66,6 +68,9 @@ impl Editor {
                 Ok(command) => {
                     if matches!(command, EditorCommand::Quit) {
                         self.should_quit = true;
+                    }
+                    if matches!(command, EditorCommand::Save) {
+                        self.save_file();
                     } else {
                         self.view.handle_command(command);
                     }
@@ -97,6 +102,12 @@ impl Editor {
         Terminal::show_cursor().unwrap();
         Terminal::execute().unwrap();
         Ok(())
+    }
+
+    fn save_file(&self) {
+        if let Some(file_path) = self.file_path.clone() {
+            self.view.buffer.write_to_file(file_path);
+        }
     }
 }
 

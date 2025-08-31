@@ -19,7 +19,9 @@ pub enum EditorCommand {
     Insert(char),
     Ignore,
     Backspace,
+    Enter,
     Delete,
+    Save,
     Quit,
 }
 
@@ -35,9 +37,12 @@ impl TryFrom<&Event> for EditorCommand {
                 ..
             }) => match (code, *modifiers) {
                 (KeyCode::Char('q'), KeyModifiers::CONTROL) => Ok(Self::Quit),
+                (KeyCode::Char('s'), KeyModifiers::CONTROL) => Ok(Self::Save),
                 (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
                     Ok(Self::Insert(*c))
                 }
+                (KeyCode::Tab, _) => Ok(Self::Insert('\t')),
+                (KeyCode::Enter, _) => Ok(Self::Enter),
                 (KeyCode::Delete, _) => Ok(Self::Delete),
                 (KeyCode::Backspace, _) => Ok(Self::Backspace),
                 (KeyCode::Up, _) => Ok(Self::Move(Direction::Up)),

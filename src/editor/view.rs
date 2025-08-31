@@ -21,7 +21,7 @@ pub struct Location {
 }
 
 pub struct View {
-    buffer: Buffer,
+    pub buffer: Buffer,
     need_redraw: bool,
     size: Size,
     location: Location,
@@ -51,8 +51,9 @@ impl View {
             EditorCommand::Move(direction) => self.move_cursor(&direction),
             EditorCommand::Insert(c) => self.add_character(c),
             EditorCommand::Backspace => self.remove_backward(),
+            EditorCommand::Enter => self.add_character('\n'),
             EditorCommand::Delete => self.remove_forward(),
-            EditorCommand::Quit | EditorCommand::Ignore => {}
+            EditorCommand::Quit | EditorCommand::Ignore | EditorCommand::Save => {}
         }
     }
 
@@ -143,11 +144,13 @@ impl View {
             let pos =
                 self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
             self.buffer.insert_char(pos, ch);
-            self.move_right();
-            // self.location.grapheme_index += 1;
-            self.scroll_into_view();
-            self.need_redraw = true;
+        } else {
+            let pos = self.buffer.document.len_chars();
+            self.buffer.insert_char(pos, ch);
         }
+        self.location.grapheme_index += 1;
+        self.scroll_into_view();
+        self.need_redraw = true;
     }
 
     fn remove_backward(&mut self) {

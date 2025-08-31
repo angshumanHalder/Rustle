@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::{fs::File, io::Error};
 
 use ropey::{Rope, RopeSlice};
 
@@ -37,6 +37,12 @@ impl Buffer {
     pub fn delete_range_char(&mut self, pos: usize, len: usize) {
         let end = pos.saturating_add(len);
         self.document.remove(pos..end);
+    }
+
+    pub fn write_to_file(&self, path: String) -> Result<(), Error> {
+        let file = File::create(path)?;
+        self.document.write_to(file)?;
+        Ok(())
     }
 }
 
