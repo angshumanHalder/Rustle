@@ -20,20 +20,31 @@ pub struct Location {
     pub line_index: usize,
 }
 
+#[derive(Default, PartialEq, Eq, Clone, Copy, Debug)]
+pub struct ViewStatus {
+    pub total_lines: usize,
+    pub current_line_idx: usize,
+    pub is_modified: bool,
+}
+
 pub struct View {
     pub buffer: Buffer,
-    need_redraw: bool,
+    pub need_redraw: bool,
     size: Size,
     location: Location,
     scroll_offset: Position,
 }
 
 impl View {
-    pub fn new(file: Option<File>) -> Self {
+    pub fn new(file: Option<File>, margin_bottom: u16) -> Self {
+        let terminal_size = Terminal::size().unwrap_or_default();
         Self {
             buffer: Buffer::new(file),
             need_redraw: true,
-            size: Terminal::size().unwrap_or_default(),
+            size: Size {
+                width: terminal_size.width,
+                height: terminal_size.height.saturating_sub(margin_bottom),
+            },
             location: Location::default(),
             scroll_offset: Position { col: 0, row: 0 },
         }
@@ -48,7 +59,7 @@ impl View {
     pub fn handle_command(&mut self, command: EditorCommand) {
         match command {
             EditorCommand::Resize(size) => self.resize(size),
-            EditorCommand::Move(direction) => self.move_cursor(&direction),
+            EditorCommand::Move(direction) => self.move_cursor(direction),
             EditorCommand::Insert(c) => self.add_character(c),
             EditorCommand::Backspace => self.remove_backward(),
             EditorCommand::Enter => self.add_character('\n'),
@@ -76,7 +87,7 @@ impl View {
         self.need_redraw = false;
     }
 
-    pub fn move_cursor(&mut self, direction: &Direction) {
+    pub fn move_cursor(&mut self, direction: Direction) {
         let Size { height, .. } = Terminal::size().unwrap();
         match direction {
             Direction::Up => self.move_up(1),
@@ -89,6 +100,14 @@ impl View {
             Direction::End => self.move_to_line_end(),
         }
         self.scroll_into_view();
+    }
+
+    pub fn get_status(&self) -> ViewStatus {
+        ViewStatus {
+            total_lines: self.buffer.line_count(),
+            current_line_idx: self.location.line_index,
+            is_modified: self.buffer.is_dirty,
+        }
     }
 
     fn move_up(&mut self, step: u16) {
@@ -116,7 +135,7 @@ impl View {
             .buffer
             .get_line(self.location.line_index)
             .map_or(0, |line| Line::from(line).grapheme_count());
-        if self.location.grapheme_index < line_width.saturating_sub(1) {
+        if self.location.grapheme_index < line_width {
             self.location.grapheme_index += 1;
         } else {
             self.move_down(1);
@@ -132,9 +151,7 @@ impl View {
         self.location.grapheme_index = self
             .buffer
             .get_line(self.location.line_index)
-            .map_or(0, |line| {
-                Line::from(line).grapheme_count().saturating_sub(1)
-            });
+            .map_or(0, |line| Line::from(line).grapheme_count());
     }
 
     fn add_character(&mut self, ch: char) {
@@ -148,7 +165,12 @@ impl View {
             let pos = self.buffer.document.len_chars();
             self.buffer.insert_char(pos, ch);
         }
-        self.location.grapheme_index += 1;
+        if ch == '\n' {
+            self.location.line_index += 1;
+            self.location.grapheme_index = 0;
+        } else {
+            self.location.grapheme_index += 1;
+        }
         self.scroll_into_view();
         self.need_redraw = true;
     }

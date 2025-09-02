@@ -78,7 +78,14 @@ impl Line {
     }
 
     pub fn grapheme_count(&self) -> usize {
-        self.fragments.len()
+        if self.fragments[self.fragments.len() - 1]
+            .replacement
+            .is_some()
+        {
+            self.fragments.len() - 1
+        } else {
+            self.fragments.len()
+        }
     }
 
     pub fn width_until(&self, grapheme_idx: usize) -> usize {

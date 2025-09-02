@@ -26,7 +26,7 @@ impl Position {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct Size {
     pub width: u16,
     pub height: u16,
@@ -81,12 +81,12 @@ impl Terminal {
         Self::queue_command(EnterAlternateScreen)
     }
 
-    fn leave_alternate_screen() -> Result<(), std::io::Error> {
-        Self::queue_command(LeaveAlternateScreen)
-    }
-
     pub fn execute() -> Result<(), Error> {
         stdout().flush()
+    }
+
+    fn leave_alternate_screen() -> Result<(), std::io::Error> {
+        Self::queue_command(LeaveAlternateScreen)
     }
 
     fn queue_command<T: Command>(cmd: T) -> Result<(), Error> {

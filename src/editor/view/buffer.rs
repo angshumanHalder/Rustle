@@ -4,6 +4,7 @@ use ropey::{Rope, RopeSlice};
 
 pub struct Buffer {
     pub document: Rope,
+    pub is_dirty: bool,
 }
 
 impl Buffer {
@@ -15,7 +16,10 @@ impl Buffer {
                 Err(_) => Rope::new(),
             };
         }
-        Self { document }
+        Self {
+            document,
+            is_dirty: false,
+        }
     }
 
     pub fn get_line(&self, idx: usize) -> Option<RopeSlice> {
@@ -32,16 +36,19 @@ impl Buffer {
 
     pub fn insert_char(&mut self, pos: usize, ch: char) {
         self.document.insert_char(pos, ch);
+        self.is_dirty = true;
     }
 
     pub fn delete_range_char(&mut self, pos: usize, len: usize) {
         let end = pos.saturating_add(len);
         self.document.remove(pos..end);
+        self.is_dirty = true;
     }
 
-    pub fn write_to_file(&self, path: String) -> Result<(), Error> {
+    pub fn write_to_file(&mut self, path: String) -> Result<(), Error> {
         let file = File::create(path)?;
         self.document.write_to(file)?;
+        self.is_dirty = false;
         Ok(())
     }
 }
