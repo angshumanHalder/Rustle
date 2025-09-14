@@ -59,7 +59,7 @@ impl Editor {
         let view_status = view.get_status();
         let mut status: DocumentStatus = view_status.into();
         status.path = path.cloned();
-        let mut status_bar = StatusBar::new(1);
+        let mut status_bar = StatusBar::new(0);
         status_bar.update_status(status);
 
         Ok(Self {

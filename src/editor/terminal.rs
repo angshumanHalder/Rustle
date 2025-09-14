@@ -1,10 +1,13 @@
 use std::io::{Error, Write, stdout};
 
 use crossterm::{
-    Command, cursor, execute, queue,
-    style::Print,
+    Command,
+    cursor::{self},
+    execute, queue,
+    style::{Attribute, Print},
     terminal::{
-        self, Clear, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+        self, Clear, DisableLineWrap, EnableLineWrap, EnterAlternateScreen, LeaveAlternateScreen,
+        disable_raw_mode, enable_raw_mode,
     },
 };
 
@@ -37,6 +40,7 @@ impl Terminal {
         enable_raw_mode()?;
         Self::enter_alternate_screen()?;
         Self::clear_screen()?;
+        Self::disable_line_wrap()?;
         Self::move_cursor(Position { col: 0, row: 0 })?;
         Self::execute()
     }
@@ -45,6 +49,7 @@ impl Terminal {
         Self::leave_alternate_screen()?;
         Self::show_cursor()?;
         Self::execute()?;
+        Self::enable_line_wrap()?;
         disable_raw_mode()
     }
 
@@ -77,12 +82,33 @@ impl Terminal {
         Self::queue_command(Print(s))
     }
 
+    pub fn print_inverted_row(s: &str) -> Result<(), std::io::Error> {
+        let width = Self::size()?.width as usize;
+        Self::print(&format!(
+            "{}{:width$.width$}{}",
+            Attribute::Reverse,
+            s,
+            Attribute::Reset
+        ))?;
+        Ok(())
+    }
+
     pub fn enter_alternate_screen() -> Result<(), std::io::Error> {
         Self::queue_command(EnterAlternateScreen)
     }
 
     pub fn execute() -> Result<(), Error> {
         stdout().flush()
+    }
+
+    fn disable_line_wrap() -> Result<(), Error> {
+        Self::queue_command(DisableLineWrap)?;
+        Ok(())
+    }
+
+    fn enable_line_wrap() -> Result<(), Error> {
+        Self::queue_command(EnableLineWrap)?;
+        Ok(())
     }
 
     fn leave_alternate_screen() -> Result<(), std::io::Error> {

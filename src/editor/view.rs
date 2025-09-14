@@ -30,6 +30,7 @@ pub struct ViewStatus {
 pub struct View {
     pub buffer: Buffer,
     pub need_redraw: bool,
+    margin_bottom: usize,
     size: Size,
     location: Location,
     scroll_offset: Position,
@@ -45,13 +46,18 @@ impl View {
                 width: terminal_size.width,
                 height: terminal_size.height.saturating_sub(margin_bottom),
             },
+            margin_bottom: margin_bottom as usize,
             location: Location::default(),
             scroll_offset: Position { col: 0, row: 0 },
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     pub fn resize(&mut self, size: Size) {
-        self.size = size;
+        self.size = Size {
+            width: size.width,
+            height: size.height.saturating_sub(self.margin_bottom as u16),
+        };
         self.scroll_into_view();
         self.need_redraw = true;
     }
@@ -69,7 +75,7 @@ impl View {
     }
 
     pub fn render(&mut self) {
-        if !self.need_redraw {
+        if !self.need_redraw || self.size.height == 0 {
             return;
         }
         let Size { height, width } = Terminal::size().unwrap();
