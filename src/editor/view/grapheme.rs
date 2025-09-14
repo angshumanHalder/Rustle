@@ -78,11 +78,14 @@ impl Line {
     }
 
     pub fn grapheme_count(&self) -> usize {
-        if self.fragments[self.fragments.len() - 1]
+        if self.fragments.is_empty() {
+            return 0;
+        }
+        if self.fragments[self.fragments.len().saturating_sub(1)]
             .replacement
             .is_some()
         {
-            self.fragments.len() - 1
+            self.fragments.len().saturating_sub(1)
         } else {
             self.fragments.len()
         }
