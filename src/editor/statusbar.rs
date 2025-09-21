@@ -3,83 +3,20 @@ use std::path::Path;
 use super::{
     DocumentStatus,
     terminal::{Position, Size, Terminal},
+    uicomponent::UIComponent,
 };
 
+#[derive(Default)]
 pub struct StatusBar {
     current_status: DocumentStatus,
-    margin_bottom: usize,
-    width: usize,
-    position_y: usize,
+    size: Size,
     needs_redraw: bool,
-    is_visible: bool,
 }
 
 impl StatusBar {
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn new(margin_bottom: usize) -> Self {
-        let size = Terminal::size().unwrap_or_default();
-        let mut status_bar = Self {
-            current_status: DocumentStatus::default(),
-            margin_bottom,
-            width: size.width as usize,
-            position_y: 0,
-            needs_redraw: true,
-            is_visible: false,
-        };
-        status_bar.resize(size);
-        status_bar
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn resize(&mut self, size: Size) {
-        self.width = size.width as usize;
-        let mut position_y = 0;
-        let mut is_visible = false;
-        if let Some(result) = size
-            .height
-            .checked_sub(self.margin_bottom as u16)
-            .and_then(|result| result.checked_sub(1))
-        {
-            position_y = result;
-            is_visible = true;
-        }
-        self.position_y = position_y as usize;
-        self.is_visible = is_visible;
-        self.needs_redraw = true;
-    }
-
     pub fn update_status(&mut self, status: DocumentStatus) {
         if self.current_status != status {
             self.current_status = status;
-            self.needs_redraw = true;
-        }
-    }
-
-    pub fn redraw(&mut self) {
-        self.needs_redraw = true;
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn render(&mut self) {
-        if !self.needs_redraw || !self.is_visible {
-            return;
-        }
-        if let Ok(size) = Terminal::size() {
-            let (beginning, end) = self.format_status();
-            let remainder_len = self.width.saturating_sub(beginning.len());
-            let status = format!("{beginning}{end:>remainder_len$}");
-            let to_print = if status.len() <= size.width as usize {
-                status
-            } else {
-                String::new()
-            };
-            let _ = Terminal::move_cursor(Position {
-                row: self.position_y as u16,
-                ..Default::default()
-            });
-            let result = Terminal::print_inverted_row(&to_print);
-            debug_assert!(result.is_ok(), "Failed to render status bar");
-            self.needs_redraw = false;
         }
     }
 
@@ -102,5 +39,40 @@ impl StatusBar {
             beginning = format!("{beginning} (modified)");
         }
         (beginning, end)
+    }
+}
+
+impl UIComponent for StatusBar {
+    fn mark_redraw(&mut self, value: bool) {
+        self.needs_redraw = value;
+    }
+
+    fn needs_redraw(&self) -> bool {
+        true
+    }
+
+    fn set_size(&mut self, size: Size) {
+        self.size = size;
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn draw(&mut self, origin_y: usize) -> Result<(), std::io::Error> {
+        if let Ok(size) = Terminal::size() {
+            let (beginning, end) = self.format_status();
+            let remainder_len = (self.size.width as usize).saturating_sub(beginning.len());
+            let status = format!("{beginning}{end:>remainder_len$}");
+            let to_print = if status.len() <= size.width as usize {
+                status
+            } else {
+                String::new()
+            };
+            let _ = Terminal::move_cursor(Position {
+                row: origin_y as u16,
+                ..Default::default()
+            });
+            let result = Terminal::print_inverted_row(&to_print);
+            debug_assert!(result.is_ok(), "Failed to render status bar");
+        }
+        Ok(())
     }
 }

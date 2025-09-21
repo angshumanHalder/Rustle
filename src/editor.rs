@@ -6,12 +6,16 @@ use commands::EditorCommand;
 use crossterm::event::{Event, KeyEvent, KeyEventKind, read};
 
 mod commands;
+mod messagebar;
 mod statusbar;
 mod terminal;
+mod uicomponent;
 mod view;
 
+use messagebar::MessageBar;
 use statusbar::StatusBar;
-use terminal::Terminal;
+use terminal::{Size, Terminal};
+use uicomponent::UIComponent;
 use view::{View, ViewStatus};
 
 #[derive(Default, PartialEq, Eq, Debug)]
@@ -38,6 +42,7 @@ pub struct Editor {
     view: View,
     file_path: Option<String>,
     status_bar: StatusBar,
+    message_bar: MessageBar,
 }
 
 impl Editor {
@@ -59,20 +64,27 @@ impl Editor {
         let view_status = view.get_status();
         let mut status: DocumentStatus = view_status.into();
         status.path = path.cloned();
-        let mut status_bar = StatusBar::new(0);
+
+        let mut status_bar = StatusBar::default();
+        let size = Terminal::size()?;
+        status_bar.set_size(size);
         status_bar.update_status(status);
+
+        let mut message_bar = MessageBar::default();
+        message_bar.update_message("HELP: Ctrl-S = save | Ctrl-Q = quit".to_string());
 
         Ok(Self {
             should_quit: false,
             view,
             file_path: path.cloned(),
             status_bar,
+            message_bar,
         })
     }
 
     pub fn run(&mut self) {
         loop {
-            self.refresh_screen().unwrap();
+            self.refresh_screen();
             if self.should_quit {
                 break;
             }
@@ -107,11 +119,10 @@ impl Editor {
                     }
                     if matches!(command, EditorCommand::Save) {
                         self.save_file();
+                    } else if let EditorCommand::Resize(size) = command {
+                        self.resize(size);
                     } else {
                         self.view.handle_command(command);
-                        if let EditorCommand::Resize(size) = command {
-                            self.status_bar.resize(size);
-                        }
                     }
                 }
                 Err(err) => {
@@ -129,17 +140,38 @@ impl Editor {
         }
     }
 
-    fn refresh_screen(&mut self) -> Result<(), Error> {
-        Terminal::hide_cursor()?;
-        if self.view.need_redraw {
-            self.status_bar.redraw();
+    fn resize(&mut self, size: Size) {
+        self.view.resize(Size {
+            width: size.width,
+            height: size.height.saturating_sub(2),
+        });
+        self.message_bar.resize(Size {
+            width: size.width,
+            height: 1,
+        });
+        self.status_bar.resize(Size {
+            height: 1,
+            width: size.width,
+        });
+    }
+
+    fn refresh_screen(&mut self) {
+        let _ = Terminal::hide_cursor();
+        let size = Terminal::size().unwrap();
+        if size.height == 0 || size.width == 0 {
+            return;
         }
-        self.view.render();
-        self.status_bar.render();
+        if size.height > 2 {
+            self.view.render(0);
+        }
+        self.message_bar.render(size.height as usize);
+        if size.height > 1 {
+            self.status_bar
+                .render(size.height.saturating_sub(2) as usize);
+        }
         let _ = Terminal::move_cursor(self.view.get_position());
         Terminal::show_cursor().unwrap();
         Terminal::execute().unwrap();
-        Ok(())
     }
 
     fn save_file(&mut self) {

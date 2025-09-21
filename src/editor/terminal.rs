@@ -29,7 +29,7 @@ impl Position {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct Size {
     pub width: u16,
     pub height: u16,

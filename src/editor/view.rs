@@ -7,6 +7,7 @@ use grapheme::Line;
 
 use super::commands::{Direction, EditorCommand};
 use super::terminal::{Position, Size, Terminal};
+use super::uicomponent::UIComponent;
 
 mod buffer;
 mod grapheme;
@@ -29,11 +30,11 @@ pub struct ViewStatus {
 
 pub struct View {
     pub buffer: Buffer,
-    pub need_redraw: bool,
     margin_bottom: usize,
     size: Size,
     location: Location,
     scroll_offset: Position,
+    needs_redraw: bool,
 }
 
 impl View {
@@ -41,7 +42,6 @@ impl View {
         let terminal_size = Terminal::size().unwrap_or_default();
         Self {
             buffer: Buffer::new(file),
-            need_redraw: true,
             size: Size {
                 width: terminal_size.width,
                 height: terminal_size.height.saturating_sub(margin_bottom),
@@ -49,6 +49,7 @@ impl View {
             margin_bottom: margin_bottom as usize,
             location: Location::default(),
             scroll_offset: Position { col: 0, row: 0 },
+            needs_redraw: true,
         }
     }
 
@@ -59,7 +60,7 @@ impl View {
             height: size.height.saturating_sub(self.margin_bottom as u16),
         };
         self.scroll_into_view();
-        self.need_redraw = true;
+        self.mark_redraw(true);
     }
 
     pub fn handle_command(&mut self, command: EditorCommand) {
@@ -74,24 +75,24 @@ impl View {
         }
     }
 
-    pub fn render(&mut self) {
-        if !self.need_redraw || self.size.height == 0 {
-            return;
-        }
-        let Size { height, width } = Terminal::size().unwrap();
-        if height == 0 || width == 0 {
-            return;
-        }
-        for r in 0..height {
-            self.render_line(r, width).unwrap();
-        }
-        if self.buffer.is_empty() {
-            Self::draw_welcome_message().unwrap();
-        }
-        Terminal::move_cursor(Position { col: 0, row: 0 }).unwrap();
-        Terminal::execute().unwrap();
-        self.need_redraw = false;
-    }
+    // pub fn render(&mut self) {
+    //     if !self.need_redraw || self.size.height == 0 {
+    //         return;
+    //     }
+    //     let Size { height, width } = Terminal::size().unwrap();
+    //     if height == 0 || width == 0 {
+    //         return;
+    //     }
+    //     for r in 0..height {
+    //         self.render_line(r, width).unwrap();
+    //     }
+    //     if self.buffer.is_empty() {
+    //         Self::draw_welcome_message().unwrap();
+    //     }
+    //     Terminal::move_cursor(Position { col: 0, row: 0 }).unwrap();
+    //     Terminal::execute().unwrap();
+    //     self.need_redraw = false;
+    // }
 
     pub fn move_cursor(&mut self, direction: Direction) {
         let Size { height, .. } = Terminal::size().unwrap();
@@ -178,7 +179,7 @@ impl View {
             self.location.grapheme_index += 1;
         }
         self.scroll_into_view();
-        self.need_redraw = true;
+        self.mark_redraw(true);
     }
 
     fn remove_backward(&mut self) {
@@ -198,7 +199,7 @@ impl View {
                 self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
             self.buffer.delete_range_char(pos, grapheme_char_len);
             self.scroll_into_view();
-            self.need_redraw = true;
+            self.mark_redraw(true);
         }
     }
 
@@ -215,7 +216,7 @@ impl View {
                         .saturating_sub(1);
                     self.buffer.delete_range_char(pos, 1);
                     self.scroll_into_view();
-                    self.need_redraw = true;
+                    self.mark_redraw(true);
                 }
                 return;
             }
@@ -227,7 +228,7 @@ impl View {
                 self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
             self.buffer.delete_range_char(pos, grapheme_char_len);
             self.scroll_into_view();
-            self.need_redraw = true;
+            self.mark_redraw(true);
         }
     }
 
@@ -276,7 +277,7 @@ impl View {
             self.scroll_offset.col = col.saturating_sub(width).saturating_add(1);
             offset_changed = true;
         }
-        self.need_redraw = offset_changed;
+        self.mark_redraw(offset_changed);
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -336,5 +337,37 @@ impl View {
 
     fn draw_empty_row() -> Result<(), Error> {
         Terminal::print("~")
+    }
+}
+
+impl UIComponent for View {
+    fn mark_redraw(&mut self, value: bool) {
+        self.needs_redraw = value;
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+
+    fn set_size(&mut self, size: Size) {
+        self.size = size;
+        self.scroll_into_view();
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn draw(&mut self, origin_y: usize) -> Result<(), Error> {
+        let Size { height, width } = Terminal::size().unwrap();
+        let end_y = (origin_y as u16)
+            .saturating_add(height)
+            .saturating_sub(self.margin_bottom as u16);
+        for r in (origin_y as u16)..end_y {
+            self.render_line(r, width).unwrap();
+        }
+        if self.buffer.is_empty() {
+            Self::draw_welcome_message().unwrap();
+        }
+        Terminal::move_cursor(Position { col: 0, row: 0 }).unwrap();
+        Terminal::execute().unwrap();
+        Ok(())
     }
 }
