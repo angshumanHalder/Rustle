@@ -63,36 +63,35 @@ impl View {
         self.mark_redraw(true);
     }
 
-    pub fn handle_command(&mut self, command: EditorCommand) {
+    pub fn handle_command(&mut self, command: EditorCommand) -> Option<Result<String, String>> {
         match command {
-            EditorCommand::Resize(size) => self.resize(size),
-            EditorCommand::Move(direction) => self.move_cursor(direction),
-            EditorCommand::Insert(c) => self.add_character(c),
-            EditorCommand::Backspace => self.remove_backward(),
-            EditorCommand::Enter => self.add_character('\n'),
-            EditorCommand::Delete => self.remove_forward(),
-            EditorCommand::Quit | EditorCommand::Ignore | EditorCommand::Save => {}
+            EditorCommand::Resize(size) => {
+                self.resize(size);
+                None
+            }
+            EditorCommand::Move(direction) => {
+                self.move_cursor(direction);
+                None
+            }
+            EditorCommand::Insert(c) => {
+                self.add_character(c);
+                None
+            }
+            EditorCommand::Backspace => {
+                self.remove_backward();
+                None
+            }
+            EditorCommand::Enter => {
+                self.add_character('\n');
+                None
+            }
+            EditorCommand::Delete => {
+                self.remove_forward();
+                None
+            }
+            EditorCommand::Quit | EditorCommand::Ignore | EditorCommand::Save => None,
         }
     }
-
-    // pub fn render(&mut self) {
-    //     if !self.need_redraw || self.size.height == 0 {
-    //         return;
-    //     }
-    //     let Size { height, width } = Terminal::size().unwrap();
-    //     if height == 0 || width == 0 {
-    //         return;
-    //     }
-    //     for r in 0..height {
-    //         self.render_line(r, width).unwrap();
-    //     }
-    //     if self.buffer.is_empty() {
-    //         Self::draw_welcome_message().unwrap();
-    //     }
-    //     Terminal::move_cursor(Position { col: 0, row: 0 }).unwrap();
-    //     Terminal::execute().unwrap();
-    //     self.need_redraw = false;
-    // }
 
     pub fn move_cursor(&mut self, direction: Direction) {
         let Size { height, .. } = Terminal::size().unwrap();

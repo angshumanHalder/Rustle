@@ -1,9 +1,10 @@
 use std::fs::File;
 use std::io::Error;
 use std::panic::{set_hook, take_hook};
+use std::time::Duration;
 
 use commands::EditorCommand;
-use crossterm::event::{Event, KeyEvent, KeyEventKind, read};
+use crossterm::event::{Event, KeyEvent, KeyEventKind, poll, read};
 
 mod commands;
 mod messagebar;
@@ -17,6 +18,8 @@ use statusbar::StatusBar;
 use terminal::{Size, Terminal};
 use uicomponent::UIComponent;
 use view::{View, ViewStatus};
+
+const COUNT_TO_QUIT: i16 = 1;
 
 #[derive(Default, PartialEq, Eq, Debug)]
 pub struct DocumentStatus {
@@ -43,6 +46,7 @@ pub struct Editor {
     file_path: Option<String>,
     status_bar: StatusBar,
     message_bar: MessageBar,
+    quit_press_count: i16,
 }
 
 impl Editor {
@@ -79,6 +83,7 @@ impl Editor {
             file_path: path.cloned(),
             status_bar,
             message_bar,
+            quit_press_count: 0,
         })
     }
 
@@ -88,8 +93,17 @@ impl Editor {
             if self.should_quit {
                 break;
             }
-            match read() {
-                Ok(event) => self.evaluate_event(&event),
+            match poll(Duration::from_millis(100)) {
+                Ok(true) => match read() {
+                    Ok(event) => self.evaluate_event(&event),
+                    Err(err) => {
+                        #[cfg(debug_assertions)]
+                        {
+                            panic!("Could not read event: {err:?}")
+                        }
+                    }
+                },
+                Ok(false) => {}
                 Err(err) => {
                     #[cfg(debug_assertions)]
                     {
@@ -115,10 +129,20 @@ impl Editor {
             match EditorCommand::try_from(event) {
                 Ok(command) => {
                     if matches!(command, EditorCommand::Quit) {
-                        self.should_quit = true;
+                        if self.view.buffer.is_dirty && self.quit_press_count < COUNT_TO_QUIT {
+                            self.quit_press_count += 1;
+                            self.message_bar.update_message(String::from(
+                                "WARNING: File has unsaved changes. Press again to Quit",
+                            ));
+                        } else {
+                            self.should_quit = true;
+                        }
                     }
                     if matches!(command, EditorCommand::Save) {
-                        self.save_file();
+                        match self.save_file() {
+                            Ok(v) => self.message_bar.update_message(v),
+                            Err(e) => self.message_bar.update_message(format!("Err: {e}")),
+                        }
                     } else if let EditorCommand::Resize(size) = command {
                         self.resize(size);
                     } else {
@@ -174,9 +198,14 @@ impl Editor {
         Terminal::execute().unwrap();
     }
 
-    fn save_file(&mut self) {
+    fn save_file(&mut self) -> Result<String, String> {
         if let Some(file_path) = &self.file_path {
-            let _ = self.view.buffer.write_to_file(file_path.clone());
+            match self.view.buffer.write_to_file(file_path.clone()) {
+                Ok(()) => Ok(String::from("File saved successfully.")),
+                Err(_) => Err(String::from("Could not save file!")),
+            }
+        } else {
+            Err(String::from("No such file name"))
         }
     }
 }
