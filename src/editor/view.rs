@@ -63,37 +63,34 @@ impl View {
         self.mark_redraw(true);
     }
 
-    pub fn handle_command(&mut self, command: EditorCommand) -> Option<Result<String, String>> {
+    pub fn handle_command(&mut self, command: EditorCommand) {
         match command {
             EditorCommand::Resize(size) => {
                 self.resize(size);
-                None
             }
             EditorCommand::Move(direction) => {
                 self.move_cursor(direction);
-                None
             }
-            EditorCommand::Insert(c) => {
-                self.add_character(c);
-                None
-            }
+            EditorCommand::Insert(c) => self.add_character(c),
             EditorCommand::Backspace => {
                 self.remove_backward();
-                None
             }
             EditorCommand::Enter => {
                 self.add_character('\n');
-                None
             }
             EditorCommand::Delete => {
                 self.remove_forward();
-                None
             }
-            EditorCommand::Quit | EditorCommand::Ignore | EditorCommand::Save => None,
+            EditorCommand::Esc
+            | EditorCommand::Quit
+            | EditorCommand::Ignore
+            | EditorCommand::Save
+            | EditorCommand::Search => {}
         }
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
+        // Depending on the mode move between either highglights of search of normal
         let Size { height, .. } = Terminal::size().unwrap();
         match direction {
             Direction::Up => self.move_up(1),

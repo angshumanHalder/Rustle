@@ -62,7 +62,7 @@ impl UIComponent for MessageBar {
             self.cleared = false;
         }
         let message = if self.current_message.is_expired() {
-            "HELP: Ctrl-S = save | Ctrl-Q = quit"
+            "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = search"
         } else {
             &self.current_message.text
         };

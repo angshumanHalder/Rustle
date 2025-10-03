@@ -8,18 +8,26 @@ use crossterm::event::{Event, KeyEvent, KeyEventKind, poll, read};
 
 mod commands;
 mod messagebar;
+mod searchbar;
 mod statusbar;
 mod terminal;
 mod uicomponent;
 mod view;
 
 use messagebar::MessageBar;
+use searchbar::SearchBar;
 use statusbar::StatusBar;
 use terminal::{Size, Terminal};
 use uicomponent::UIComponent;
 use view::{View, ViewStatus};
 
 const COUNT_TO_QUIT: i16 = 1;
+
+#[derive(Clone, Copy)]
+enum Mode {
+    Search,
+    Edit,
+}
 
 #[derive(Default, PartialEq, Eq, Debug)]
 pub struct DocumentStatus {
@@ -46,7 +54,9 @@ pub struct Editor {
     file_path: Option<String>,
     status_bar: StatusBar,
     message_bar: MessageBar,
+    search_bar: SearchBar,
     quit_press_count: i16,
+    mode: Mode,
 }
 
 impl Editor {
@@ -75,7 +85,11 @@ impl Editor {
         status_bar.update_status(status);
 
         let mut message_bar = MessageBar::default();
-        message_bar.update_message("HELP: Ctrl-S = save | Ctrl-Q = quit".to_string());
+        message_bar
+            .update_message("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = search".to_string());
+
+        let mut search_bar = SearchBar::default();
+        search_bar.update_search_query(String::new());
 
         Ok(Self {
             should_quit: false,
@@ -83,7 +97,9 @@ impl Editor {
             file_path: path.cloned(),
             status_bar,
             message_bar,
+            search_bar,
             quit_press_count: 0,
+            mode: Mode::Edit,
         })
     }
 
@@ -125,28 +141,58 @@ impl Editor {
             _ => false,
         };
 
+        assert!(
+            should_process,
+            "Received and discarded unsupported or non-press event"
+        );
+
         if should_process {
+            // Global commands
             match EditorCommand::try_from(event) {
                 Ok(command) => {
-                    if matches!(command, EditorCommand::Quit) {
-                        if self.view.buffer.is_dirty && self.quit_press_count < COUNT_TO_QUIT {
-                            self.quit_press_count += 1;
-                            self.message_bar.update_message(String::from(
-                                "WARNING: File has unsaved changes. Press again to Quit",
-                            ));
-                        } else {
-                            self.should_quit = true;
+                    match command {
+                        EditorCommand::Quit => {
+                            if self.view.buffer.is_dirty && self.quit_press_count < COUNT_TO_QUIT {
+                                self.quit_press_count += 1;
+                                self.message_bar.update_message(String::from(
+                                    "WARNING: File has unsaved changes. Press again to Quit",
+                                ));
+                                self.search_bar.clear();
+                                self.mode = Mode::Edit;
+                            } else {
+                                self.should_quit = true;
+                            }
                         }
-                    }
-                    if matches!(command, EditorCommand::Save) {
-                        match self.save_file() {
+                        EditorCommand::Save => match self.save_file() {
                             Ok(v) => self.message_bar.update_message(v),
                             Err(e) => self.message_bar.update_message(format!("Err: {e}")),
+                        },
+                        EditorCommand::Search => {
+                            self.mode = Mode::Search;
                         }
-                    } else if let EditorCommand::Resize(size) = command {
-                        self.resize(size);
-                    } else {
-                        self.view.handle_command(command);
+                        EditorCommand::Resize(size) => {
+                            self.resize(size);
+                        }
+                        _ => {}
+                    }
+                    match self.mode {
+                        Mode::Edit => self.view.handle_command(command),
+                        Mode::Search => match command {
+                            EditorCommand::Insert(c) => {
+                                self.search_bar.push_char(c);
+                            }
+                            EditorCommand::Backspace => {
+                                self.search_bar.pop_char();
+                            }
+                            EditorCommand::Enter => {
+                                // trigger search
+                                todo!()
+                            }
+                            EditorCommand::Esc => {
+                                self.mode = Mode::Edit;
+                            }
+                            _ => {}
+                        },
                     }
                 }
                 Err(err) => {
@@ -155,11 +201,6 @@ impl Editor {
                         panic!("Could not handle command: {err}")
                     }
                 }
-            }
-        } else {
-            #[cfg(debug_assertions)]
-            {
-                panic!("Received and discarded unsupported or non-press event")
             }
         }
     }
@@ -188,12 +229,21 @@ impl Editor {
         if size.height > 2 {
             self.view.render(0);
         }
-        self.message_bar.render(size.height as usize);
+        let cursor_position = match self.mode {
+            Mode::Edit => {
+                self.message_bar.render(size.height as usize);
+                self.view.get_position()
+            }
+            Mode::Search => {
+                self.search_bar.render(size.height as usize);
+                self.search_bar.get_position(size)
+            }
+        };
         if size.height > 1 {
             self.status_bar
                 .render(size.height.saturating_sub(2) as usize);
         }
-        let _ = Terminal::move_cursor(self.view.get_position());
+        let _ = Terminal::move_cursor(cursor_position);
         Terminal::show_cursor().unwrap();
         Terminal::execute().unwrap();
     }
