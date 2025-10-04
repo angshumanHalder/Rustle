@@ -51,6 +51,24 @@ impl From<RopeSlice<'_>> for Line {
     }
 }
 
+impl From<&str> for Line {
+    fn from(s: &str) -> Self {
+        let fragments = s
+            .graphemes(true)
+            .map(|g| {
+                let width = Line::detect_width(g);
+                let replacement = Line::replacement_character(g);
+                TextFragment {
+                    grapheme: String::from(g),
+                    rendered_width: width,
+                    replacement,
+                }
+            })
+            .collect();
+        Self { fragments }
+    }
+}
+
 impl Line {
     pub fn get_visible_graphemes(&self, range: Range<usize>) -> String {
         if range.start >= range.end {
@@ -111,10 +129,31 @@ impl Line {
             .sum()
     }
 
+    pub fn char_to_grapheme_idx(&self, char_idx: usize) -> usize {
+        self.fragments
+            .iter()
+            .scan(0, |acc, f| {
+                *acc += f.grapheme.chars().count();
+                Some(*acc)
+            })
+            .position(|count| count > char_idx)
+            .unwrap_or(self.fragments.len())
+    }
+
     pub fn grapheme_char_len(&self, grapheme_idx: usize) -> Option<usize> {
         self.fragments
             .get(grapheme_idx)
             .map(|f| f.grapheme.chars().count())
+    }
+
+    pub fn get_graphemes_in_range(&self, start: usize, end: usize) -> String {
+        if start >= end {
+            return String::new();
+        }
+        self.fragments[start..end]
+            .iter()
+            .map(|f| f.grapheme.clone())
+            .collect::<String>()
     }
 
     fn detect_width(grapheme: &str) -> GraphemeWidth {

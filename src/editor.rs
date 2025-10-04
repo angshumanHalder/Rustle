@@ -3,7 +3,7 @@ use std::io::Error;
 use std::panic::{set_hook, take_hook};
 use std::time::Duration;
 
-use commands::EditorCommand;
+use commands::{Direction, EditorCommand};
 use crossterm::event::{Event, KeyEvent, KeyEventKind, poll, read};
 
 mod commands;
@@ -27,6 +27,7 @@ const COUNT_TO_QUIT: i16 = 1;
 enum Mode {
     Search,
     Edit,
+    SeachNavigate,
 }
 
 #[derive(Default, PartialEq, Eq, Debug)]
@@ -162,16 +163,23 @@ impl Editor {
                             } else {
                                 self.should_quit = true;
                             }
+                            return;
                         }
-                        EditorCommand::Save => match self.save_file() {
-                            Ok(v) => self.message_bar.update_message(v),
-                            Err(e) => self.message_bar.update_message(format!("Err: {e}")),
-                        },
+                        EditorCommand::Save => {
+                            match self.save_file() {
+                                Ok(v) => self.message_bar.update_message(v),
+                                Err(e) => self.message_bar.update_message(format!("Err: {e}")),
+                            }
+                            return;
+                        }
                         EditorCommand::Search => {
                             self.mode = Mode::Search;
+                            self.search_bar.update_search_query(String::new());
+                            return;
                         }
                         EditorCommand::Resize(size) => {
                             self.resize(size);
+                            return;
                         }
                         _ => {}
                     }
@@ -185,11 +193,22 @@ impl Editor {
                                 self.search_bar.pop_char();
                             }
                             EditorCommand::Enter => {
-                                // trigger search
-                                todo!()
+                                self.mode = Mode::SeachNavigate;
+                                self.view.search_document(&self.search_bar.get_query());
+                            }
+                            _ => {}
+                        },
+                        Mode::SeachNavigate => match command {
+                            EditorCommand::Move(Direction::Up) => {
+                                self.view.find_previous();
+                            }
+                            EditorCommand::Move(Direction::Down) => {
+                                self.view.find_next();
                             }
                             EditorCommand::Esc => {
                                 self.mode = Mode::Edit;
+                                self.view.clear_search();
+                                self.search_bar.clear();
                             }
                             _ => {}
                         },
@@ -230,7 +249,7 @@ impl Editor {
             self.view.render(0);
         }
         let cursor_position = match self.mode {
-            Mode::Edit => {
+            Mode::Edit | Mode::SeachNavigate => {
                 self.message_bar.render(size.height as usize);
                 self.view.get_position()
             }

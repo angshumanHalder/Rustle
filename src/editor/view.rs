@@ -3,6 +3,8 @@ use std::io::Error;
 use std::{char, cmp};
 
 use buffer::Buffer;
+use crossterm::style::Attribute;
+use crossterm::style::Color;
 use grapheme::Line;
 
 use super::commands::{Direction, EditorCommand};
@@ -15,7 +17,7 @@ mod grapheme;
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Location {
     pub grapheme_index: usize,
     pub line_index: usize,
@@ -35,6 +37,9 @@ pub struct View {
     location: Location,
     scroll_offset: Position,
     needs_redraw: bool,
+    search_locations: Vec<Location>,
+    current_search_idx: Option<usize>,
+    search_query: String,
 }
 
 impl View {
@@ -50,6 +55,9 @@ impl View {
             location: Location::default(),
             scroll_offset: Position { col: 0, row: 0 },
             needs_redraw: true,
+            search_locations: Vec::new(),
+            current_search_idx: None,
+            search_query: String::new(),
         }
     }
 
@@ -111,6 +119,86 @@ impl View {
             current_line_idx: self.location.line_index,
             is_modified: self.buffer.is_dirty,
         }
+    }
+
+    pub fn search_document(&mut self, query: &str) {
+        if query.is_empty() {
+            self.clear_search();
+            return;
+        }
+        let raw_results = self.buffer.search_document(query);
+        let mut locations = Vec::new();
+        for (line_index, char_idx_line) in raw_results {
+            if let Some(line_slice) = self.buffer.get_line(line_index) {
+                let grapheme_index = Line::from(line_slice).char_to_grapheme_idx(char_idx_line);
+                locations.push(Location {
+                    grapheme_index,
+                    line_index,
+                });
+            }
+        }
+        self.search_locations = locations;
+        self.search_query = String::from(query);
+        self.mark_redraw(true);
+
+        if self.search_locations.is_empty() {
+            self.current_search_idx = None;
+            self.search_query = String::new();
+            return;
+        }
+
+        let start_position = self.location;
+        let new_idx = self.search_locations.iter().position(|loc| {
+            loc.line_index > start_position.line_index
+                || (loc.line_index == start_position.line_index
+                    && loc.grapheme_index >= start_position.grapheme_index)
+        });
+
+        let final_idx = new_idx.unwrap_or(0);
+        self.current_search_idx = Some(final_idx);
+        self.jump_to_match(final_idx);
+        self.mark_redraw(true);
+    }
+
+    pub fn clear_search(&mut self) {
+        self.search_locations = vec![];
+        self.current_search_idx = None;
+        self.search_query = String::new();
+        self.mark_redraw(true);
+    }
+
+    pub fn jump_to_match(&mut self, idx: usize) {
+        if let Some(location) = self.search_locations.get(idx) {
+            self.location = *location;
+            self.scroll_into_view();
+            self.mark_redraw(true);
+        }
+    }
+
+    pub fn find_next(&mut self) {
+        if self.search_locations.is_empty() {
+            return;
+        }
+        let new_idx = self
+            .current_search_idx
+            .map_or(0, |idx| (idx + 1) % self.search_locations.len());
+        self.current_search_idx = Some(new_idx);
+        self.jump_to_match(new_idx);
+    }
+
+    pub fn find_previous(&mut self) {
+        if self.search_locations.is_empty() {
+            return;
+        }
+        let new_idx = self.current_search_idx.map_or(0, |idx| {
+            if idx == 0 {
+                self.search_locations.len() - 1
+            } else {
+                idx - 1
+            }
+        });
+        self.current_search_idx = Some(new_idx);
+        self.jump_to_match(new_idx);
     }
 
     fn move_up(&mut self, step: u16) {
@@ -289,26 +377,111 @@ impl View {
         pos.saturating_sub(self.scroll_offset)
     }
 
-    fn render_line(&self, r: u16, width: u16) -> Result<(), Error> {
+    fn render_line(&self, r: u16) -> Result<(), Error> {
         Terminal::move_cursor(Position { col: 0, row: r })?;
         Terminal::clear_line()?;
         let top = self.scroll_offset.row;
-        let left = self.scroll_offset.col;
         let line_opt = self.buffer.get_line(r.saturating_add(top) as usize);
 
-        if let Some(line) = line_opt {
-            // Only grab the visible portion
-            let text_to_print: String = Line::from(line).get_visible_graphemes(
-                (left as usize)..self.scroll_offset.col.saturating_add(width) as usize,
+        let Some(line_slice) = line_opt else {
+            Self::draw_empty_row()?;
+            return Ok(());
+        };
+
+        let line = Line::from(line_slice);
+        let query_grapheme_len = Line::from(self.search_query.as_str()).grapheme_count();
+
+        let matches_on_line: Vec<_> = self
+            .search_locations
+            .iter()
+            .enumerate()
+            .filter(|(_, loc)| loc.line_index == r.saturating_add(top) as usize)
+            .collect();
+
+        let mut current_grapheme_idx = 0;
+        let visible_grapheme_start = self.scroll_offset.col;
+        let visible_grapheme_end = visible_grapheme_start.saturating_add(self.size.width);
+
+        if matches_on_line.is_empty() {
+            let to_print = line.get_visible_graphemes(
+                visible_grapheme_start as usize..visible_grapheme_end as usize,
             );
-            if text_to_print.is_empty() {
-                Self::draw_empty_row()
-            } else {
-                Terminal::print(&text_to_print)
-            }
-        } else {
-            Self::draw_empty_row()
+            Terminal::print(&to_print)?;
+            return Ok(());
         }
+        for (match_list_idx, location) in matches_on_line {
+            let match_start = location.grapheme_index;
+            let match_end = match_start.saturating_add(query_grapheme_len);
+
+            Self::render_segment(
+                &line,
+                current_grapheme_idx,
+                match_start,
+                visible_grapheme_start as usize,
+                visible_grapheme_end as usize,
+                None,
+            )?;
+
+            let highlight_color = if self.current_search_idx == Some(match_list_idx) {
+                Color::Yellow
+            } else {
+                Color::DarkGrey
+            };
+
+            Self::render_segment(
+                &line,
+                match_start,
+                match_end,
+                visible_grapheme_start as usize,
+                visible_grapheme_end as usize,
+                Some(highlight_color),
+            )?;
+
+            current_grapheme_idx = match_end;
+        }
+
+        Self::render_segment(
+            &line,
+            current_grapheme_idx,
+            line.grapheme_count(),
+            visible_grapheme_start as usize,
+            visible_grapheme_end as usize,
+            None,
+        )?;
+
+        Ok(())
+    }
+
+    fn render_segment(
+        line: &Line,
+        from_grapheme: usize,
+        to_grapheme: usize,
+        visible_start: usize,
+        visible_end: usize,
+        highlight_color: Option<Color>,
+    ) -> Result<(), Error> {
+        if from_grapheme >= to_grapheme {
+            return Ok(());
+        }
+
+        let visible_from = cmp::max(from_grapheme, visible_start);
+        let visible_to = cmp::min(to_grapheme, visible_end);
+
+        if visible_from >= visible_to {
+            return Ok(());
+        }
+
+        let text_to_print = line.get_graphemes_in_range(visible_from, visible_to);
+
+        if let Some(color) = highlight_color {
+            Terminal::set_bg_color(color)?;
+            Terminal::set_attribute(Attribute::Bold)?;
+        }
+        Terminal::print(&text_to_print)?;
+        if highlight_color.is_some() {
+            Terminal::reset_color()?;
+        }
+        Ok(())
     }
 
     fn draw_welcome_message() -> Result<(), Error> {
@@ -352,18 +525,18 @@ impl UIComponent for View {
 
     #[allow(clippy::cast_possible_truncation)]
     fn draw(&mut self, origin_y: usize) -> Result<(), Error> {
-        let Size { height, width } = Terminal::size().unwrap();
+        let size = Terminal::size().unwrap();
         let end_y = (origin_y as u16)
-            .saturating_add(height)
+            .saturating_add(size.height)
             .saturating_sub(self.margin_bottom as u16);
         for r in (origin_y as u16)..end_y {
-            self.render_line(r, width).unwrap();
+            self.render_line(r).unwrap();
         }
         if self.buffer.is_empty() {
             Self::draw_welcome_message().unwrap();
         }
         Terminal::move_cursor(Position { col: 0, row: 0 }).unwrap();
-        Terminal::execute().unwrap();
+        // Terminal::execute().unwrap();
         Ok(())
     }
 }

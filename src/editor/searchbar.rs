@@ -36,6 +36,10 @@ impl SearchBar {
     pub fn clear(&mut self) {
         self.search_query = String::new();
     }
+
+    pub fn get_query(&self) -> String {
+        self.search_query.clone()
+    }
 }
 
 impl UIComponent for SearchBar {

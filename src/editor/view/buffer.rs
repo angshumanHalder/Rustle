@@ -51,6 +51,20 @@ impl Buffer {
         self.is_dirty = false;
         Ok(())
     }
+
+    pub fn search_document(&self, query: &str) -> Vec<(usize, usize)> {
+        let document_string = self.document.to_string();
+        let document_string_iter = document_string.match_indices(query);
+        let mut results = Vec::new();
+        for (byte_idx, _) in document_string_iter {
+            let line_idx = self.document.byte_to_line(byte_idx);
+            let start_of_line = self.document.line_to_char(line_idx);
+            let match_char_idx = self.document.byte_to_char(byte_idx);
+            let char_idx_line = match_char_idx.saturating_sub(start_of_line);
+            results.push((line_idx, char_idx_line));
+        }
+        results
+    }
 }
 
 impl Drop for Buffer {
