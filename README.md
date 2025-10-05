@@ -59,7 +59,7 @@ Clone the repository:
 
 Bash
 
-https://github.com/angshumanHalder/Rustle.git
+git clone https://github.com/angshumanHalder/Rustle.git
 
 cd rustle
 
