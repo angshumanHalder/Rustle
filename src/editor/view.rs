@@ -101,7 +101,6 @@ impl View {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        // Depending on the mode move between either highglights of search of normal
         let Size { height, .. } = Terminal::size().unwrap();
         match direction {
             Direction::Up => self.move_up(1),
