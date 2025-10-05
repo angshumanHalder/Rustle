@@ -1,5 +1,5 @@
 Rustle: A Terminal Text Editor in Rust
-A minimal, modern, and feature-rich text editor that runs in your terminal, built from scratch in Rust. It features syntax highlighting (only for rust language - non exhaustive), robust search, and correct handling of Unicode graphemes.
+A minimal, modern, and feature-rich text editor that runs in your terminal, built from scratch in Rust. It features syntax highlighting (only for rust - non exhaustive), robust search, and correct handling of Unicode graphemes.
 
 ## ⚠️ Disclaimer: Not for Production Use
 
@@ -62,7 +62,6 @@ Bash
 git clone https://github.com/angshumanHalder/Rustle.git
 
 cd rustle
-
 Build the project in release mode:
 
 Bash
