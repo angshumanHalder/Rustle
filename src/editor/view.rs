@@ -3,9 +3,9 @@ use std::io::Error;
 use std::{char, cmp};
 
 use buffer::Buffer;
-use crossterm::style::Attribute;
 use crossterm::style::Color;
-use grapheme::Line;
+use grapheme::{HighlightType, Line};
+pub use languageconfig::LanguageConfig;
 
 use super::commands::{Direction, EditorCommand};
 use super::terminal::{Position, Size, Terminal};
@@ -13,6 +13,7 @@ use super::uicomponent::UIComponent;
 
 mod buffer;
 mod grapheme;
+mod languageconfig;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -40,10 +41,11 @@ pub struct View {
     search_locations: Vec<Location>,
     current_search_idx: Option<usize>,
     search_query: String,
+    language_config: LanguageConfig,
 }
 
 impl View {
-    pub fn new(file: Option<File>, margin_bottom: u16) -> Self {
+    pub fn new(file: Option<File>, margin_bottom: u16, config: LanguageConfig) -> Self {
         let terminal_size = Terminal::size().unwrap_or_default();
         Self {
             buffer: Buffer::new(file),
@@ -58,6 +60,7 @@ impl View {
             search_locations: Vec::new(),
             current_search_idx: None,
             search_query: String::new(),
+            language_config: config,
         }
     }
 
@@ -130,7 +133,9 @@ impl View {
         let mut locations = Vec::new();
         for (line_index, char_idx_line) in raw_results {
             if let Some(line_slice) = self.buffer.get_line(line_index) {
-                let grapheme_index = Line::from(line_slice).char_to_grapheme_idx(char_idx_line);
+                let grapheme_index =
+                    Line::get_fragments_from_rope_slice(line_slice, &self.language_config)
+                        .char_to_grapheme_idx(char_idx_line);
                 locations.push(Location {
                     grapheme_index,
                     line_index,
@@ -225,7 +230,9 @@ impl View {
         let line_width = self
             .buffer
             .get_line(self.location.line_index)
-            .map_or(0, |line| Line::from(line).grapheme_count());
+            .map_or(0, |line| {
+                Line::get_fragments_from_rope_slice(line, &self.language_config).grapheme_count()
+            });
         if self.location.grapheme_index < line_width {
             self.location.grapheme_index += 1;
         } else {
@@ -239,16 +246,19 @@ impl View {
     }
 
     fn move_to_line_end(&mut self) {
-        self.location.grapheme_index = self
-            .buffer
-            .get_line(self.location.line_index)
-            .map_or(0, |line| Line::from(line).grapheme_count());
+        self.location.grapheme_index =
+            self.buffer
+                .get_line(self.location.line_index)
+                .map_or(0, |line| {
+                    Line::get_fragments_from_rope_slice(line, &self.language_config)
+                        .grapheme_count()
+                });
     }
 
     fn add_character(&mut self, ch: char) {
         if let Some(line) = self.buffer.get_line(self.location.line_index) {
-            let char_idx_in_line =
-                Line::from(line).grapheme_to_char_idx(self.location.grapheme_index);
+            let char_idx_in_line = Line::get_fragments_from_rope_slice(line, &self.language_config)
+                .grapheme_to_char_idx(self.location.grapheme_index);
             let pos =
                 self.buffer.document.line_to_char(self.location.line_index) + char_idx_in_line;
             self.buffer.insert_char(pos, ch);
@@ -274,7 +284,7 @@ impl View {
         self.move_left();
 
         if let Some(line) = self.buffer.get_line(self.location.line_index) {
-            let view_line = Line::from(line);
+            let view_line = Line::get_fragments_from_rope_slice(line, &self.language_config);
             let char_idx_in_line = view_line.grapheme_to_char_idx(self.location.grapheme_index);
             let grapheme_char_len = view_line
                 .grapheme_char_len(self.location.grapheme_index)
@@ -289,7 +299,7 @@ impl View {
 
     fn remove_forward(&mut self) {
         if let Some(line) = self.buffer.get_line(self.location.line_index) {
-            let view_line = Line::from(line);
+            let view_line = Line::get_fragments_from_rope_slice(line, &self.language_config);
             let line_len = view_line.grapheme_count();
             if self.location.grapheme_index >= line_len {
                 if self.location.line_index < self.buffer.line_count() - 1 {
@@ -323,7 +333,8 @@ impl View {
                 .get_line(self.location.grapheme_index)
                 .map_or(0, |line| {
                     cmp::min(
-                        Line::from(line).grapheme_count(),
+                        Line::get_fragments_from_rope_slice(line, &self.language_config)
+                            .grapheme_count(),
                         self.location.grapheme_index,
                     )
                 });
@@ -340,7 +351,8 @@ impl View {
     pub fn scroll_into_view(&mut self) {
         let row = self.location.line_index as u16;
         let col = self.buffer.get_line(row as usize).map_or(0, |line| {
-            Line::from(line).width_until(self.location.grapheme_index) as u16
+            Line::get_fragments_from_rope_slice(line, &self.language_config)
+                .width_until(self.location.grapheme_index) as u16
         });
         let Size { width, height } = self.size;
         let mut offset_changed = false;
@@ -368,7 +380,8 @@ impl View {
     pub fn get_position(&self) -> Position {
         let row = self.location.line_index;
         let col = self.buffer.get_line(row).map_or(0, |line| {
-            Line::from(line).width_until(self.location.grapheme_index)
+            Line::get_fragments_from_rope_slice(line, &self.language_config)
+                .width_until(self.location.grapheme_index)
         });
         let pos = Position {
             col: col as u16,
@@ -381,73 +394,86 @@ impl View {
         Terminal::move_cursor(Position { col: 0, row: r })?;
         Terminal::clear_line()?;
         let top = self.scroll_offset.row;
-        let line_opt = self.buffer.get_line(r.saturating_add(top) as usize);
+        let line_idx = r.saturating_add(top) as usize;
 
-        let Some(line_slice) = line_opt else {
-            Self::draw_empty_row()?;
+        let Some(line_slice) = self.buffer.get_line(line_idx) else {
+            if self.buffer.is_empty() && r == self.size.height / 3 {
+                Self::draw_welcome_message()?;
+            } else {
+                Self::draw_empty_row()?;
+            }
             return Ok(());
         };
 
-        let line = Line::from(line_slice);
-        let query_grapheme_len = Line::from(self.search_query.as_str()).grapheme_count();
+        let line = Line::get_fragments_from_rope_slice(line_slice, &self.language_config);
+        let visible_start_width = self.scroll_offset.col as usize;
+        let visible_end_width = visible_start_width.saturating_add(self.size.width as usize);
 
         let matches_on_line: Vec<_> = self
             .search_locations
             .iter()
             .enumerate()
-            .filter(|(_, loc)| loc.line_index == r.saturating_add(top) as usize)
+            .filter(|(_, loc)| loc.line_index == line_idx)
             .collect();
 
-        let mut current_grapheme_idx = 0;
-        let visible_grapheme_start = self.scroll_offset.col;
-        let visible_grapheme_end = visible_grapheme_start.saturating_add(self.size.width);
-
         if matches_on_line.is_empty() {
-            let to_print = line.get_visible_graphemes(
-                visible_grapheme_start as usize..visible_grapheme_end as usize,
-            );
-            Terminal::print(&to_print)?;
-            return Ok(());
-        }
-        for (match_list_idx, location) in matches_on_line {
-            let match_start = location.grapheme_index;
-            let match_end = match_start.saturating_add(query_grapheme_len);
+            Self::render_segment(
+                &line,
+                0,
+                line.grapheme_count(),
+                visible_start_width,
+                visible_end_width,
+                None,
+            )?;
+        } else {
+            let query_grapheme_len = Line::get_fragments_from_string(
+                self.search_query.as_str(),
+                &LanguageConfig::text(),
+            )
+            .grapheme_count();
+            let mut current_grapheme_idx = 0;
 
+            for (match_list_idx, location) in matches_on_line {
+                let match_start = location.grapheme_index;
+                let match_end = match_start.saturating_add(query_grapheme_len);
+
+                Self::render_segment(
+                    &line,
+                    current_grapheme_idx,
+                    match_start,
+                    visible_start_width,
+                    visible_end_width,
+                    None,
+                )?;
+
+                // Render the match itself with a background color
+                let background_color = if self.current_search_idx == Some(match_list_idx) {
+                    Color::Yellow
+                } else {
+                    Color::DarkGrey
+                };
+                Self::render_segment(
+                    &line,
+                    match_start,
+                    match_end,
+                    visible_start_width,
+                    visible_end_width,
+                    Some(background_color),
+                )?;
+
+                current_grapheme_idx = match_end;
+            }
+
+            // Render any text remaining AFTER the last match
             Self::render_segment(
                 &line,
                 current_grapheme_idx,
-                match_start,
-                visible_grapheme_start as usize,
-                visible_grapheme_end as usize,
+                line.grapheme_count(),
+                visible_start_width,
+                visible_end_width,
                 None,
             )?;
-
-            let highlight_color = if self.current_search_idx == Some(match_list_idx) {
-                Color::Yellow
-            } else {
-                Color::DarkGrey
-            };
-
-            Self::render_segment(
-                &line,
-                match_start,
-                match_end,
-                visible_grapheme_start as usize,
-                visible_grapheme_end as usize,
-                Some(highlight_color),
-            )?;
-
-            current_grapheme_idx = match_end;
         }
-
-        Self::render_segment(
-            &line,
-            current_grapheme_idx,
-            line.grapheme_count(),
-            visible_grapheme_start as usize,
-            visible_grapheme_end as usize,
-            None,
-        )?;
 
         Ok(())
     }
@@ -456,30 +482,42 @@ impl View {
         line: &Line,
         from_grapheme: usize,
         to_grapheme: usize,
-        visible_start: usize,
-        visible_end: usize,
-        highlight_color: Option<Color>,
+        visible_start_width: usize,
+        visible_end_width: usize,
+        background_color: Option<Color>,
     ) -> Result<(), Error> {
         if from_grapheme >= to_grapheme {
             return Ok(());
         }
 
-        let visible_from = cmp::max(from_grapheme, visible_start);
-        let visible_to = cmp::min(to_grapheme, visible_end);
+        for grapheme_idx in from_grapheme..to_grapheme {
+            if let Some(fragment) = line.fragments.get(grapheme_idx) {
+                let fragment_start_width = line.width_until(grapheme_idx);
+                let fragment_end_width =
+                    fragment_start_width + fragment.rendered_width.saturating_add(0);
 
-        if visible_from >= visible_to {
-            return Ok(());
-        }
+                if fragment_end_width > visible_start_width
+                    && fragment_start_width < visible_end_width
+                {
+                    if let Some(color) = background_color {
+                        Terminal::set_bg_color(color)?;
+                    }
 
-        let text_to_print = line.get_graphemes_in_range(visible_from, visible_to);
+                    let fg_color = match fragment.highlight_type {
+                        HighlightType::Keyword => Color::Blue,
+                        HighlightType::Type => Color::Cyan,
+                        HighlightType::Number => Color::Yellow,
+                        HighlightType::String => Color::Green,
+                        HighlightType::Comment => Color::DarkGrey,
+                        HighlightType::Normal => Color::Reset,
+                    };
+                    Terminal::set_fg_color(fg_color)?;
 
-        if let Some(color) = highlight_color {
-            Terminal::set_bg_color(color)?;
-            Terminal::set_attribute(Attribute::Bold)?;
-        }
-        Terminal::print(&text_to_print)?;
-        if highlight_color.is_some() {
-            Terminal::reset_color()?;
+                    Terminal::print(&fragment.grapheme)?;
+
+                    Terminal::reset_color()?;
+                }
+            }
         }
         Ok(())
     }

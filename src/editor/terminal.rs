@@ -4,7 +4,7 @@ use crossterm::{
     Command,
     cursor::{self},
     execute, queue,
-    style::{Attribute, Print, SetAttribute},
+    style::{Attribute, Print},
     terminal::{
         self, Clear, DisableLineWrap, EnableLineWrap, EnterAlternateScreen, LeaveAlternateScreen,
         disable_raw_mode, enable_raw_mode,
@@ -93,16 +93,16 @@ impl Terminal {
         Ok(())
     }
 
+    pub fn set_fg_color(color: crossterm::style::Color) -> Result<(), std::io::Error> {
+        Self::queue_command(crossterm::style::SetForegroundColor(color))
+    }
+
     pub fn set_bg_color(color: crossterm::style::Color) -> Result<(), std::io::Error> {
         Self::queue_command(crossterm::style::SetBackgroundColor(color))
     }
 
     pub fn reset_color() -> Result<(), std::io::Error> {
         Self::queue_command(crossterm::style::ResetColor)
-    }
-
-    pub fn set_attribute(attr: Attribute) -> Result<(), std::io::Error> {
-        Self::queue_command(SetAttribute(attr))
     }
 
     pub fn enter_alternate_screen() -> Result<(), std::io::Error> {

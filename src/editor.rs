@@ -19,7 +19,7 @@ use searchbar::SearchBar;
 use statusbar::StatusBar;
 use terminal::{Size, Terminal};
 use uicomponent::UIComponent;
-use view::{View, ViewStatus};
+use view::{LanguageConfig, View, ViewStatus};
 
 const COUNT_TO_QUIT: i16 = 1;
 
@@ -61,6 +61,7 @@ pub struct Editor {
 }
 
 impl Editor {
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     pub fn new(path: Option<&String>) -> Result<Self, Error> {
         let current_hook = take_hook();
         set_hook(Box::new(move |panic_info| {
@@ -70,12 +71,16 @@ impl Editor {
 
         Terminal::initialize()?;
         let mut file: Option<File> = None;
+        let mut lang_config = LanguageConfig::text();
         if let Some(p) = path {
             file = (File::open(p)).ok();
+            if p.ends_with(".rs") {
+                lang_config = LanguageConfig::rust();
+            }
         }
 
         // update the status on load
-        let view = View::new(file, 2);
+        let view = View::new(file, 2, lang_config);
         let view_status = view.get_status();
         let mut status: DocumentStatus = view_status.into();
         status.path = path.cloned();
