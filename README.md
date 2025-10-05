@@ -62,6 +62,7 @@ Bash
 https://github.com/angshumanHalder/Rustle.git
 
 cd rustle
+
 Build the project in release mode:
 
 Bash
